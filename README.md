@@ -136,6 +136,10 @@ SMS consent is never collected through this endpoint. A business that wants
 to text visitors links to a Themis capture page (`/c/<slug>`), where consent
 is recorded.
 
+### `POST /api/v1/appointment`
+
+Book onto the workspace's calendar from outside Themis. Same `Authorization: Bearer thm_…` header. Body: `{ name, phone?, email?, startsAt (ISO), endsAt? (ISO), title?, notes?, location?, kind?, sourcePath? }`. The person becomes a contact in Leads if new, the appointment is created against them, and the booking shows on the team's calendar feed. Reply: `{ ok, id, contactId }`. `createAppointment(key, appt)` in `src/themis.ts` wraps it.
+
 ### `GET /api/v1/posts` and `GET /api/v1/posts/<slug>`
 
 ```json

@@ -141,6 +141,49 @@ export function sanitizeUtm(v: unknown): Record<string, string> | null {
   return utm;
 }
 
+export type ThemisAppointment = {
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  /** ISO instants. */
+  startsAt: string;
+  endsAt?: string | null;
+  /** What was booked, as the calendar should show it: "Free walkthrough". */
+  title: string;
+  notes?: string | null;
+  location?: string | null;
+  /** Where it was booked: "site/book", "front-desk/voice", ... */
+  sourcePath?: string | null;
+};
+
+/** Book an appointment onto a workspace's calendar, against the contact it
+ * came from (created in Leads if new). Throws on a missing key or a non-2xx. */
+export async function createAppointment(key: string, appt: ThemisAppointment): Promise<{ id?: string; contactId?: string }> {
+  if (!key) throw new Error("Themis key is not configured.");
+  const res = await fetch(`${THEMIS_URL}/api/v1/appointment`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: appt.name.trim().slice(0, 200),
+      phone: appt.phone?.trim() || null,
+      email: appt.email?.trim() || null,
+      startsAt: appt.startsAt,
+      endsAt: appt.endsAt ?? null,
+      title: appt.title.slice(0, 200),
+      notes: appt.notes?.slice(0, 4000) ?? null,
+      location: appt.location ?? null,
+      sourcePath: appt.sourcePath ?? null,
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Themis responded ${res.status} ${detail.slice(0, 300)}`);
+  }
+  return (await res.json()) as { id?: string; contactId?: string };
+}
+
 /** Deliver one lead to a Themis workspace. Throws when the key is missing or
  * Themis answers non-2xx; callers decide how to degrade (log it, show the
  * visitor a direct email, retry). */
