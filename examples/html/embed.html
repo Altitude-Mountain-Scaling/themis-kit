@@ -1,0 +1,27 @@
+<!doctype html>
+<!--
+  Zero-code: Themis's hosted lead form in an iframe. Works on any page builder
+  that lets you paste HTML. Submissions land in the workspace's Leads inbox
+  with the embedding page recorded as the source.
+
+  Flags on the src:
+    &phone=0   hide the phone field
+    &intent=1  ask buyer/seller (real-estate workspaces)
+    &agent=1   ask "working with an agent?" (real-estate workspaces)
+    utm_*      pass through to the lead
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Contact</title>
+  </head>
+  <body>
+    <iframe
+      src="https://themisre.com/embed/form?key=thm_REPLACE_ME"
+      style="width:100%;height:460px;border:0"
+      loading="lazy"
+      title="Contact form"
+    ></iframe>
+  </body>
+</html>

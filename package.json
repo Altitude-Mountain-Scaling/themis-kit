@@ -1,0 +1,22 @@
+{
+  "name": "themis-kit",
+  "version": "1.0.0",
+  "description": "Connect any website to Themis CRM: lead delivery, the blog, and workspace provisioning. Copy-in TypeScript, no dependencies.",
+  "license": "MIT",
+  "type": "module",
+  "repository": "github:jojogambino/themis-kit",
+  "exports": {
+    ".": "./src/themis.ts",
+    "./markdown": "./src/markdown.ts"
+  },
+  "files": ["src", "examples", "scripts", "README.md"],
+  "scripts": {
+    "provision": "node scripts/provision.mjs",
+    "check": "tsc --noEmit -p tsconfig.json"
+  },
+  "engines": { "node": ">=18" },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.0.0"
+  }
+}

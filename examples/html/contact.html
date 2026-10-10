@@ -1,0 +1,69 @@
+<!doctype html>
+<!--
+  A contact form on a plain HTML site (WordPress, Webflow custom code,
+  Squarespace code block, a static site) posting straight to Themis from the
+  browser. Because this runs in the browser, the page's host must be on the
+  key's allowlist (Themis → Developers, or `websites` at provisioning).
+  Localhost is not on it; test from the real domain or a listed staging host.
+
+  The key is publishable: it can only create leads and read published posts.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Contact</title>
+  </head>
+  <body>
+    <form id="contact">
+      <label>Name <input name="name" required autocomplete="name" /></label>
+      <label>Email <input name="email" type="email" autocomplete="email" /></label>
+      <label>Phone <input name="phone" type="tel" autocomplete="tel" /></label>
+      <label>How can we help? <textarea name="message" required rows="5"></textarea></label>
+      <button type="submit">Send</button>
+      <p id="contact-status" role="status"></p>
+    </form>
+
+    <script>
+      const THEMIS_URL = "https://themisre.com";
+      const THEMIS_KEY = "thm_REPLACE_ME";
+
+      const form = document.getElementById("contact");
+      const status = document.getElementById("contact-status");
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const data = Object.fromEntries(new FormData(form).entries());
+        if (!data.name || (!data.email && !data.phone)) {
+          status.textContent = "Add your name and an email or phone number.";
+          return;
+        }
+
+        // Attribution: pass along the utm_* params the visitor arrived with.
+        const params = new URLSearchParams(location.search);
+        const utm = {};
+        for (const k of ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"]) {
+          if (params.get(k)) utm[k] = params.get(k);
+        }
+
+        form.querySelector("button").disabled = true;
+        status.textContent = "Sending…";
+        try {
+          const res = await fetch(`${THEMIS_URL}/api/v1/lead`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${THEMIS_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ ...data, sourcePath: location.pathname, utm }),
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+          form.reset();
+          status.textContent = "Sent. We'll reply within one business day.";
+        } catch (err) {
+          status.textContent = "We couldn't send that just now. Email hello@example.com instead.";
+          console.error("[contact]", err);
+        } finally {
+          form.querySelector("button").disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
