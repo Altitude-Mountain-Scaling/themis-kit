@@ -82,7 +82,7 @@ the same functions in `unstable_cache` with `revalidate: 60`.
 ## Provisioning workspaces for your customers
 
 With a partner secret (ask Altitude), each customer gets their own workspace
-on the Enterprise plan, named after the business, with the key already
+with every feature on, named after the business, with the key already
 issued and the owner emailed a one-time sign-in link.
 
 ```bash
@@ -101,6 +101,13 @@ owner picks on first sign-in.
 
 The same calls are available in code as `findAccount`, `provisionAccount`
 and `ensureAccount` in `src/themis.ts`.
+
+Themis never bills your customer; you do. When a customer's plan with you
+ends, pause their workspace with `setAccess(email, false)`: the app locks,
+their leads and posts are kept, and inquiries from their website keep
+arriving. `setAccess(email, true)` reopens it. For an "Open Themis" button on
+your own site, `signInUrl(email)` returns a one-time link that lands them
+signed in; only pass the email of the user your own auth has verified.
 
 Keep the partner secret server-side only. It can create accounts.
 
@@ -170,8 +177,16 @@ the phone field; `&intent=1` and `&agent=1` add the real-estate questions;
 ### Partner: `POST /api/partner/provision`, `GET /api/partner/account?email=`
 
 Bearer the partner secret. Provision body: `{ email, name, business,
-businessType?, partner, origins? }`. Both answer with the owner's `apiKey`.
+businessType?, partner, origins? }`. Both answer with the owner's `apiKey`;
+the lookup also says whether the workspace is `paused`.
 Limits: 30 provisions and 60 lookups per minute.
+
+### Partner: `POST /api/partner/access`, `POST /api/partner/sign-in`
+
+Bearer the partner secret. Access body: `{ email, active }` pauses
+(`false`) or reopens (`true`) the workspace. Sign-in body: `{ email, next? }`
+answers `{ url }`, a single-use sign-in link; `next` is a path under `/app`.
+Both answer 404 when no workspace has that owner email. 30 calls a minute.
 
 ## Checking it works
 

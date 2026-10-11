@@ -23,6 +23,11 @@
  *            the owner's account, names the workspace after the business,
  *            issues the "thm_" key, and emails the owner a one-time sign-in
  *            link. Idempotent on the owner's email.
+ *            Themis never bills a customer; the partner does. POST
+ *            /api/partner/access pauses a workspace when the customer's plan
+ *            ends and reopens it when they pay again. POST
+ *            /api/partner/sign-in returns a one-time link that signs a
+ *            customer you have already signed in on your own site into Themis.
  *
  * Server-to-server calls send no Origin header, so the key's browser origin
  * allowlist does not apply to them. Calls from a browser (fetch on the page,
@@ -300,12 +305,45 @@ async function failure(res: Response, what: string): Promise<Error> {
 }
 
 /** Look up a customer's workspace by owner email. Creates nothing. */
-export async function findAccount(ownerEmail: string): Promise<{ apiKey: string } | null> {
+export async function findAccount(ownerEmail: string): Promise<{ apiKey: string; paused: boolean } | null> {
   const res = await partnerFetch(`/api/partner/account?email=${encodeURIComponent(ownerEmail)}`);
   if (!res.ok) throw await failure(res, "Account lookup failed");
-  const data = (await res.json()) as { exists: boolean; apiKey?: string | null };
+  const data = (await res.json()) as { exists: boolean; apiKey?: string | null; paused?: boolean };
   if (!data.exists) return null;
-  return { apiKey: data.apiKey ?? "" };
+  return { apiKey: data.apiKey ?? "", paused: Boolean(data.paused) };
+}
+
+/**
+ * Open or pause a customer's workspace. Pause it when their plan with you
+ * ends: the app locks, but leads and posts are kept and website inquiries
+ * keep arriving. Reopen it when they pay again. False when no workspace has
+ * that owner email.
+ */
+export async function setAccess(ownerEmail: string, active: boolean): Promise<boolean> {
+  const res = await partnerFetch("/api/partner/access", {
+    method: "POST",
+    body: JSON.stringify({ email: ownerEmail, active }),
+  });
+  if (res.status === 404) return false;
+  if (!res.ok) throw await failure(res, `${active ? "Reopening" : "Pausing"} ${ownerEmail} failed`);
+  return true;
+}
+
+/**
+ * A one-time link that signs the owner into Themis, for an "Open Themis"
+ * button on your own site. Only ask for the email of the user signed in on
+ * your site, verified by your own auth. `next` is a path inside /app. Null
+ * when no workspace has that owner email.
+ */
+export async function signInUrl(ownerEmail: string, next = "/app"): Promise<string | null> {
+  const res = await partnerFetch("/api/partner/sign-in", {
+    method: "POST",
+    body: JSON.stringify({ email: ownerEmail, next }),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw await failure(res, "Sign-in link failed");
+  const data = (await res.json()) as { url?: string };
+  return data.url ?? null;
 }
 
 /**
