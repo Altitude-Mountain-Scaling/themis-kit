@@ -24,7 +24,7 @@ try {
   /* no .env file; rely on the environment */
 }
 
-const THEMIS_URL = (process.env.THEMIS_URL || "https://themisre.com").replace(/\/$/, "");
+const THEMIS_URL = (process.env.THEMIS_URL || "https://themis.altitudemountainscaling.com").replace(/\/$/, "");
 const SECRET = process.env.THEMIS_PARTNER_SECRET;
 const PARTNER = (process.env.THEMIS_PARTNER_NAME || "").trim();
 

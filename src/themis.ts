@@ -3,7 +3,7 @@
  * edge runtime (Next.js, Remix, Astro, SvelteKit, Netlify/Vercel functions,
  * a plain Express server).
  *
- * Themis (https://themisre.com) is the CRM every Altitude Mountain Scaling
+ * Themis (https://themis.altitudemountainscaling.com) is the CRM every Altitude Mountain Scaling
  * client gets. A website talks to it over three small surfaces:
  *
  *   LEADS    POST /api/v1/lead
@@ -36,13 +36,13 @@
  * provisioning.
  *
  * Env (all optional except the key you actually use):
- *   THEMIS_URL             Themis origin; defaults to https://themisre.com
+ *   THEMIS_URL             Themis origin; defaults to https://themis.altitudemountainscaling.com
  *   THEMIS_API_KEY         this site's publishable key ("thm_…")
  *   THEMIS_PARTNER_SECRET  your agency's partner secret (ask Altitude)
  *   THEMIS_PARTNER_NAME    your agency's name, shown in the owner's welcome email
  */
 
-const THEMIS_URL = (process.env.THEMIS_URL || "https://themisre.com").replace(/\/$/, "");
+const THEMIS_URL = (process.env.THEMIS_URL || "https://themis.altitudemountainscaling.com").replace(/\/$/, "");
 const LEAD_URL = `${THEMIS_URL}/api/v1/lead`;
 const POSTS_URL = `${THEMIS_URL}/api/v1/posts`;
 

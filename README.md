@@ -1,6 +1,6 @@
 # themis-kit
 
-Connect any website to [Themis](https://themisre.com), the CRM from Altitude
+Connect any website to [Themis](https://themis.altitudemountainscaling.com), the CRM from Altitude
 Mountain Scaling. Three things a site can do with it:
 
 1. **Leads.** Every form on the site lands in the business's shared Leads
@@ -113,7 +113,7 @@ Keep the partner secret server-side only. It can create accounts.
 
 ## API reference
 
-Base URL `https://themisre.com`. Auth is `Authorization: Bearer <key>`.
+Base URL `https://themis.altitudemountainscaling.com`. Auth is `Authorization: Bearer <key>`.
 Server-to-server calls (no `Origin` header) always pass. Browser calls pass
 only from hosts on the key's allowlist. Themis answers `401` for a bad key
 and `403` for a host that is not allowed.
