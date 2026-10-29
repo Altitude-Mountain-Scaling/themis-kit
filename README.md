@@ -72,6 +72,8 @@ const html = toHtml(post.body);                      // for non-React sites
 | Path | What it is |
 | --- | --- |
 | [examples/next](examples/next) | A Next.js App Router site: cached blog index and post pages, a contact form server action, and a JSON `/api/lead` route for static front ends. Copy the folders in; the files import from `@/lib/themis`, `@/lib/markdown` and `@/components/Markdown`. |
+| [examples/next/app/book](examples/next/app/book) | A booking page: the same questions as the contact form, plus a day picker and the open times for that day. The server action re-checks the slot and books it onto the workspace's calendar with `createAppointment`, with the visitor's answers as the notes. Set hours, days, slot length and time zone in [examples/next/lib/booking.ts](examples/next/lib/booking.ts). |
+| [examples/html/book.html](examples/html/book.html) | The same booking form for a plain HTML site, posting to `/api/v1/appointment` from the browser. Hours are set in the `BOOKING` object at the top of the script. |
 | [examples/html/contact.html](examples/html/contact.html) | A plain HTML form posting to Themis from the browser. The page's domain must be on the key's allowlist. |
 | [examples/html/embed.html](examples/html/embed.html) | Zero code: Themis's hosted form in an iframe. Paste into any page builder. |
 

@@ -1,0 +1,182 @@
+<!doctype html>
+<!--
+  A booking form on a plain HTML site: the contact questions plus a day and a
+  time, booked straight onto the workspace's calendar in Themis from the
+  browser (POST /api/v1/appointment). The person lands in Leads if new, and
+  their answers go on the appointment as notes.
+
+  As with contact.html, the page's host must be on the key's allowlist
+  (Themis → Developers). Edit BOOKING below to match the business's hours.
+  Times are the business's wall-clock times in BOOKING.timeZone, whatever
+  time zone the visitor is in.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Book a time</title>
+  </head>
+  <body>
+    <form id="book">
+      <fieldset>
+        <legend>Pick a day</legend>
+        <div id="book-days"></div>
+      </fieldset>
+      <fieldset>
+        <legend id="book-times-legend">Pick a time</legend>
+        <div id="book-times"></div>
+      </fieldset>
+      <label>Name <input name="name" required autocomplete="name" /></label>
+      <label>Email <input name="email" type="email" autocomplete="email" /></label>
+      <label>Phone <input name="phone" type="tel" autocomplete="tel" /></label>
+      <label>How can we help? <textarea name="message" required rows="5"></textarea></label>
+      <button type="submit">Book it</button>
+      <p id="book-status" role="status"></p>
+    </form>
+
+    <script>
+      const THEMIS_URL = "https://themis.altitudemountainscaling.com";
+      const THEMIS_KEY = "thm_REPLACE_ME";
+
+      const BOOKING = {
+        title: "Free consultation", // what the calendar entry is called in Themis
+        timeZone: "America/Denver", // IANA zone the hours are in
+        slotMinutes: 30,
+        opens: "09:00",
+        closes: "17:00",
+        weekdays: [1, 2, 3, 4, 5], // 0 = Sunday … 6 = Saturday
+        daysAhead: 14,
+        minNoticeMinutes: 120,
+      };
+
+      const form = document.getElementById("book");
+      const daysEl = document.getElementById("book-days");
+      const timesEl = document.getElementById("book-times");
+      const status = document.getElementById("book-status");
+
+      // ── Schedule ────────────────────────────────────────────────────────
+      const pad = (n) => String(n).padStart(2, "0");
+      const mins = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+      const timeLabel = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return `${h % 12 || 12}:${pad(m)} ${h < 12 ? "AM" : "PM"}`; };
+      const dateInZone = (at) => new Intl.DateTimeFormat("en-CA", { timeZone: BOOKING.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+      const addDays = (date, n) => { const t = new Date(`${date}T00:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+      const weekday = (date) => new Date(`${date}T00:00:00Z`).getUTCDay();
+      const dayLabel = (date) => new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
+      const zoneLabel = (at) => new Intl.DateTimeFormat("en-US", { timeZone: BOOKING.timeZone, timeZoneName: "short" }).formatToParts(at).find((p) => p.type === "timeZoneName")?.value ?? BOOKING.timeZone;
+
+      function zoneOffset(ts) {
+        const p = Object.fromEntries(
+          new Intl.DateTimeFormat("en-US", { timeZone: BOOKING.timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+            .formatToParts(new Date(ts)).map((x) => [x.type, x.value]),
+        );
+        return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - Math.floor(ts / 1000) * 1000;
+      }
+
+      // The instant a slot starts, read as wall-clock time in BOOKING.timeZone.
+      function slotStart(date, time) {
+        const [y, m, d] = date.split("-").map(Number);
+        const [hh, mm] = time.split(":").map(Number);
+        const wall = Date.UTC(y, m - 1, d, hh, mm);
+        let t = wall - zoneOffset(wall);
+        t = wall - zoneOffset(t);
+        return new Date(t);
+      }
+
+      function openDays(now) {
+        const slots = [];
+        for (let t = mins(BOOKING.opens); t + BOOKING.slotMinutes <= mins(BOOKING.closes); t += BOOKING.slotMinutes) {
+          slots.push(`${pad(Math.floor(t / 60))}:${pad(t % 60)}`);
+        }
+        const earliest = now.getTime() + BOOKING.minNoticeMinutes * 60_000;
+        const today = dateInZone(now);
+        const days = [];
+        for (let i = 0; i < BOOKING.daysAhead; i++) {
+          const date = addDays(today, i);
+          if (!BOOKING.weekdays.includes(weekday(date))) continue;
+          const open = slots.filter((time) => slotStart(date, time).getTime() >= earliest);
+          if (open.length) days.push({ date, slots: open });
+        }
+        return days;
+      }
+
+      // ── Picker ──────────────────────────────────────────────────────────
+      const days = openDays(new Date());
+      document.getElementById("book-times-legend").textContent = `Pick a time (${zoneLabel(new Date())})`;
+
+      function radio(name, value, label, onChange) {
+        const l = document.createElement("label");
+        const input = Object.assign(document.createElement("input"), { type: "radio", name, value, required: true });
+        input.addEventListener("change", onChange);
+        l.append(input, ` ${label}`);
+        return l;
+      }
+
+      function showTimes(date) {
+        const day = days.find((d) => d.date === date);
+        timesEl.replaceChildren(...(day ? day.slots.map((t) => radio("time", t, timeLabel(t))) : []));
+      }
+
+      if (!days.length) {
+        daysEl.textContent = "No open times in the next two weeks. Send us a message instead.";
+        form.querySelector("button").disabled = true;
+      }
+      daysEl.replaceChildren(...days.map((d) => radio("date", d.date, dayLabel(d.date), () => showTimes(d.date))));
+      if (days.length) {
+        daysEl.querySelector("input").checked = true;
+        showTimes(days[0].date);
+      }
+
+      // ── Submit ──────────────────────────────────────────────────────────
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const data = Object.fromEntries(new FormData(form).entries());
+        if (!data.name || (!data.email && !data.phone)) {
+          status.textContent = "Add your name and an email or phone number.";
+          return;
+        }
+        if (!data.date || !data.time) {
+          status.textContent = "Pick a day and a time.";
+          return;
+        }
+        const start = slotStart(data.date, data.time);
+        if (start.getTime() < Date.now() + BOOKING.minNoticeMinutes * 60_000) {
+          status.textContent = "That time isn't available any more. Pick another one.";
+          return;
+        }
+
+        // Attribution: note the utm_* params the visitor arrived with.
+        const params = new URLSearchParams(location.search);
+        const utm = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"]
+          .filter((k) => params.get(k)).map((k) => `${k}=${params.get(k)}`).join(", ");
+
+        form.querySelector("button").disabled = true;
+        status.textContent = "Booking…";
+        try {
+          const res = await fetch(`${THEMIS_URL}/api/v1/appointment`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${THEMIS_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: data.name,
+              email: data.email || null,
+              phone: data.phone || null,
+              startsAt: start.toISOString(),
+              endsAt: new Date(start.getTime() + BOOKING.slotMinutes * 60_000).toISOString(),
+              title: BOOKING.title,
+              notes: data.message + (utm ? `\nArrived via ${utm}` : ""),
+              sourcePath: location.pathname,
+            }),
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+          const when = `${dayLabel(data.date)} at ${timeLabel(data.time)} (${zoneLabel(start)})`;
+          const done = Object.assign(document.createElement("p"), { textContent: `You're booked for ${when}. We'll be in touch to confirm.` });
+          done.setAttribute("role", "status");
+          form.replaceChildren(done);
+        } catch (err) {
+          status.textContent = "We couldn't book that just now. Email hello@example.com and we'll get you scheduled.";
+          console.error("[book]", err);
+          form.querySelector("button").disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
