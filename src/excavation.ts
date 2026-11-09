@@ -42,6 +42,78 @@ export type ExcavationInput = {
   permit?: boolean;
   /** Miles one way to the dump or clean-fill site. */
   dumpMiles?: number;
+  /** Foundation only: walls, footings and slabs. `depth` is then the wall height. */
+  foundation?: Partial<FoundationSpec>;
+};
+
+/**
+ * A house foundation, measured the way a takeoff reads a plan. Length and
+ * width are to the OUTSIDE of the foundation walls. Inches where a plan
+ * gives inches, feet where it gives feet.
+ */
+export type FoundationSpec = {
+  length: number;
+  width: number;
+  /** Poured wall height, top of footing to top of wall (8 ft basement, 4 ft frost wall). */
+  wallHeight: number;
+  wallThicknessIn: number;
+  footingWidthIn: number;
+  footingDepthIn: number;
+  /** Wall left showing above finished grade. */
+  exposureFt: number;
+  /** Working room dug past the outside of the wall, each side. */
+  overdigFt: number;
+  /** Side slope, feet out per foot down. Undefined: 1:1 past 5 ft deep (OSHA type B), vertical above. */
+  slope?: number;
+  /** Interior slab (basement or crawl floor) and the gravel under it. */
+  slabIn: number;
+  gravelIn: number;
+  /** Garage or other slabs inside the building, sq ft, at slabIn thick. */
+  extraInteriorSqFt: number;
+  /** Driveway, walks, patio, aprons, sq ft. */
+  exteriorSqFt: number;
+  exteriorIn: number;
+  /** Concrete ordered over the net yards. */
+  waste: number;
+};
+
+export const DEFAULT_FOUNDATION: Omit<FoundationSpec, "length" | "width" | "wallHeight"> = {
+  wallThicknessIn: 8,
+  footingWidthIn: 20,
+  footingDepthIn: 10,
+  exposureFt: 1,
+  overdigFt: 2,
+  slabIn: 4,
+  gravelIn: 4,
+  extraInteriorSqFt: 0,
+  exteriorSqFt: 0,
+  exteriorIn: 4,
+  waste: 0.05,
+};
+
+export type FoundationTakeoff = {
+  /** Grade to bottom of footing. */
+  digDepthFt: number;
+  slope: number;
+  /** In the ground, before it swells. */
+  excavationYards: number;
+  /** Compacted in place around the outside of the walls. */
+  backfillYards: number;
+  /** Native dirt (bank yards) the backfill uses up, after it compacts. */
+  backfillDirtYards: number;
+  /** Bank yards left over once backfill is done: what gets hauled or spread. */
+  extraDirtYards: number;
+  footingYards: number;
+  wallYards: number;
+  /** Footings + walls. */
+  foundationYards: number;
+  interiorSqFt: number;
+  interiorYards: number;
+  exteriorSqFt: number;
+  exteriorYards: number;
+  gravelYards: number;
+  /** All concrete with waste, rounded up to the quarter yard a plant sells. */
+  orderYards: number;
 };
 
 export type Machine = {
@@ -96,13 +168,16 @@ export const DEFAULT_RATES: Rates = {
   rockHighFactor: 1.7,
 };
 
-/** Swell (bank → loose), tons per bank yard, and how fast the machine digs it. */
-export const SOILS: Record<Soil, { label: string; swell: number; tonsPerYard: number; digSpeed: number }> = {
-  sand: { label: "Sand or gravel", swell: 0.12, tonsPerYard: 1.4, digSpeed: 1 },
-  loam: { label: "Dirt / topsoil", swell: 0.25, tonsPerYard: 1.3, digSpeed: 1 },
-  clay: { label: "Clay", swell: 0.35, tonsPerYard: 1.5, digSpeed: 0.85 },
-  rocky: { label: "Rocky / cobble", swell: 0.4, tonsPerYard: 1.6, digSpeed: 0.6 },
-  unknown: { label: "Not sure", swell: 0.25, tonsPerYard: 1.4, digSpeed: 0.9 },
+/**
+ * Swell (bank → loose), shrink (bank → compacted), tons per bank yard, and
+ * how fast the machine digs it. Textbook values; a geotech report wins.
+ */
+export const SOILS: Record<Soil, { label: string; swell: number; shrink: number; tonsPerYard: number; digSpeed: number }> = {
+  sand: { label: "Sand or gravel", swell: 0.12, shrink: 0.05, tonsPerYard: 1.4, digSpeed: 1 },
+  loam: { label: "Dirt / topsoil", swell: 0.25, shrink: 0.1, tonsPerYard: 1.3, digSpeed: 1 },
+  clay: { label: "Clay", swell: 0.35, shrink: 0.15, tonsPerYard: 1.5, digSpeed: 0.85 },
+  rocky: { label: "Rocky / cobble", swell: 0.4, shrink: 0.05, tonsPerYard: 1.6, digSpeed: 0.6 },
+  unknown: { label: "Not sure", swell: 0.25, shrink: 0.1, tonsPerYard: 1.4, digSpeed: 0.9 },
 };
 
 const FILL_FACTOR = 0.9;
@@ -117,6 +192,8 @@ export type LineItem = { key: string; label: string; detail: string; amount: num
 
 export type ExcavationEstimate = {
   bankYards: number;
+  /** Foundation jobs: the full takeoff (backfill, footings, walls, slabs). */
+  takeoff?: FoundationTakeoff;
   looseYards: number;
   tons: number;
   machine: string;
@@ -133,6 +210,79 @@ export type ExcavationEstimate = {
 const round = (n: number, step = 1) => Math.round(Math.round(n / step) * step * 100) / 100;
 const pos = (n: number | undefined) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0);
 
+/**
+ * The takeoff for a house foundation: excavation, backfill, footings, walls,
+ * interior and exterior concrete.
+ *
+ *   dig depth   = wall height − exposure + footing depth (grade to bottom of footing)
+ *   excavation  = pit with a flat bottom (L + 2·overdig) × (W + 2·overdig) and sides
+ *                 sloped s:1 → V = A·D + s·D²·(Lb + Wb) + 4/3·s²·D³
+ *   footings    = wall centerline perimeter × footing width × footing depth
+ *   walls       = wall centerline perimeter × wall height × wall thickness
+ *   backfill    = excavation − the building's box below grade (L × W × depth)
+ *                 − the footing toe sticking out past the wall
+ *   interior    = inside of the walls × slab thickness (+ garage etc.)
+ *   exterior    = flatwork sq ft × thickness
+ */
+export function foundationTakeoff(
+  spec: Partial<FoundationSpec> & Pick<FoundationSpec, "length" | "width" | "wallHeight">,
+  soil: Soil = "loam",
+): FoundationTakeoff {
+  const f = { ...DEFAULT_FOUNDATION, ...spec };
+  const L = pos(f.length);
+  const W = pos(f.width);
+  const t = pos(f.wallThicknessIn) / 12;
+  const fw = pos(f.footingWidthIn) / 12;
+  const fd = pos(f.footingDepthIn) / 12;
+  const D = Math.max(0, pos(f.wallHeight) - pos(f.exposureFt) + fd);
+  const s = typeof f.slope === "number" && f.slope >= 0 ? f.slope : D > 5 ? 1 : 0;
+
+  const Lb = L + 2 * pos(f.overdigFt);
+  const Wb = W + 2 * pos(f.overdigFt);
+  const pit = Lb * Wb * D + s * D * D * (Lb + Wb) + (4 / 3) * s * s * D ** 3;
+
+  // Walls sit flush with the outside line; their centerline runs t/2 inside it.
+  const centerline = 2 * (L + W) - 4 * t;
+  const footing = centerline * fw * fd;
+  const wall = centerline * pos(f.wallHeight) * t;
+  // Footing toe outside the wall, which backfill does not fill.
+  const toe = Math.max(0, (fw - t) / 2);
+  const toeVol = (2 * (L + W) + 4 * toe) * toe * fd;
+  const backfill = Math.max(0, pit - L * W * D - toeVol);
+
+  const interiorSqFt = Math.max(0, L - 2 * t) * Math.max(0, W - 2 * t);
+  const allInterior = interiorSqFt + pos(f.extraInteriorSqFt);
+  const interior = allInterior * (pos(f.slabIn) / 12);
+  const exterior = pos(f.exteriorSqFt) * (pos(f.exteriorIn) / 12);
+  const gravel = interiorSqFt * (pos(f.gravelIn) / 12);
+
+  const backfillDirt = backfill / (1 - SOILS[soil].shrink);
+  const concrete = (footing + wall + interior + exterior) / 27;
+  const y = (n: number) => round(n / 27, 0.1);
+  return {
+    digDepthFt: round(D, 0.01),
+    slope: s,
+    excavationYards: y(pit),
+    backfillYards: y(backfill),
+    backfillDirtYards: y(backfillDirt),
+    extraDirtYards: y(Math.max(0, pit - backfillDirt)),
+    footingYards: y(footing),
+    wallYards: y(wall),
+    foundationYards: y(footing + wall),
+    interiorSqFt: Math.round(allInterior),
+    interiorYards: y(interior),
+    exteriorSqFt: Math.round(pos(f.exteriorSqFt)),
+    exteriorYards: y(exterior),
+    gravelYards: y(gravel),
+    orderYards: Math.ceil(concrete * (1 + pos(f.waste)) * 4) / 4,
+  };
+}
+
+/** The foundation spec an estimator input describes. */
+function foundationOf(i: ExcavationInput) {
+  return { ...i.foundation, length: pos(i.length), width: pos(i.width), wallHeight: pos(i.depth) || 4 };
+}
+
 /** Cubic yards in the ground. */
 export function bankYards(i: ExcavationInput): number {
   const L = pos(i.length);
@@ -141,6 +291,7 @@ export function bankYards(i: ExcavationInput): number {
   const over = OVERDIG[i.project] ?? 0;
   switch (i.project) {
     case "foundation":
+      return foundationTakeoff(foundationOf(i), i.soil).excavationYards;
     case "pool":
       return ((L + 2 * over) * (W + 2 * over) * D) / 27;
     case "trench":
@@ -160,7 +311,11 @@ export function estimateExcavation(i: ExcavationInput, rates: Rates = DEFAULT_RA
   const m = rates.machines[i.access];
   const bank = bankYards(i);
   const loose = bank * (1 + soil.swell);
-  const tons = bank * soil.tonsPerYard;
+  const takeoff = i.project === "foundation" ? foundationTakeoff(foundationOf(i), i.soil) : undefined;
+  // A foundation keeps enough dirt to backfill the walls; only the rest leaves.
+  const haulBank = takeoff ? takeoff.extraDirtYards : bank;
+  const haulLoose = haulBank * (1 + soil.swell);
+  const tons = haulBank * soil.tonsPerYard;
 
   // Loose yards an hour the machine moves. Loading an existing pile is faster than digging.
   const perHour =
@@ -168,11 +323,13 @@ export function estimateExcavation(i: ExcavationInput, rates: Rates = DEFAULT_RA
   let hours = loose / perHour;
   if (i.project === "trench") hours *= 1.6; // dig, then backfill and compact the same dirt
   if (i.spoils === "spread" && i.project !== "trench") hours *= 1.4; // push it out and grade it
+  // Backfill: load from the pile, place in lifts and compact. Slower than digging.
+  const backfillHours = takeoff ? (takeoff.backfillDirtYards * (1 + soil.swell)) / (perHour * 0.6) : 0;
 
   // Trench spoils go back in the trench; grading spreads them. Everything else can be trucked.
   const trucked = i.spoils === "haul" && i.project !== "trench" && i.project !== "grading";
   const miles = pos(i.dumpMiles) || 10;
-  const loads = trucked ? Math.ceil(loose / rates.truckYards) : 0;
+  const loads = trucked ? Math.ceil(haulLoose / rates.truckYards) : 0;
   const loadMin = (rates.truckYards / perHour) * 60;
   const cycleMin = loadMin + ((2 * miles) / rates.truckMph) * 60 + rates.dumpMinutes;
   const truckHours = (loads * cycleMin) / 60;
@@ -186,6 +343,9 @@ export function estimateExcavation(i: ExcavationInput, rates: Rates = DEFAULT_RA
 
   add("mobilize", "Equipment delivery", `${m.label}, delivered and picked up`, rates.mobilization);
   add("machine", "Digging", `${m.label}, about ${round(hours, 0.5)} hrs at $${m.hourly}/hr`, hours * m.hourly);
+  if (takeoff) {
+    add("backfill", "Backfill and compaction", `${takeoff.backfillYards} yd³ around the walls, about ${round(backfillHours, 0.5)} hrs`, backfillHours * m.hourly);
+  }
   if (trucked) {
     add("trucking", "Trucking", `${loads} load${loads === 1 ? "" : "s"}, ${miles} mi to the dump`, truckHours * rates.truckHourly);
     add("dump", "Dump fees", `About ${round(tons)} tons at $${rates.dumpPerTon}/ton`, tons * rates.dumpPerTon);
@@ -197,8 +357,10 @@ export function estimateExcavation(i: ExcavationInput, rates: Rates = DEFAULT_RA
   }
   const gravelIn = pos(i.gravelInches);
   if (gravelIn && (i.project === "pad" || i.project === "foundation")) {
-    const gTons = ((footprint * (gravelIn / 12)) / 27) * GRAVEL_TONS_PER_YARD;
-    add("gravel", "Gravel base", `${gravelIn}" over ${round(footprint).toLocaleString("en-US")} sq ft, about ${round(gTons)} tons`, gTons * rates.gravelPerTon);
+    // Under a foundation the gravel goes inside the walls, under the slab.
+    const area = takeoff ? takeoff.interiorSqFt - pos(i.foundation?.extraInteriorSqFt) : footprint;
+    const gTons = ((area * (gravelIn / 12)) / 27) * GRAVEL_TONS_PER_YARD;
+    add("gravel", "Gravel base", `${gravelIn}" over ${round(area).toLocaleString("en-US")} sq ft, about ${round(gTons)} tons`, gTons * rates.gravelPerTon);
   }
   if (i.permit) add("permit", "Permit", "Pulled and scheduled for you", rates.permit);
 
@@ -217,6 +379,7 @@ export function estimateExcavation(i: ExcavationInput, rates: Rates = DEFAULT_RA
 
   return {
     bankYards: round(bank, 0.1),
+    takeoff,
     looseYards: round(loose, 0.1),
     tons: round(tons, 0.1),
     machine: m.label,
